@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="fa">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>پیام‌رسان امن</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/socket.io@4.7.5/client-dist/socket.io.min.js"></script>
+    <style>
+        body {
+            font-family: 'Vazirmatn', sans-serif;
+            direction: rtl;
+            font-size: 15px;
+        }
+        .chat-bubble {
+            max-width: 70%;
+            border-radius: 12px;
+            padding: 8px 12px;
+            margin-bottom: 8px;
+            position: relative;
+        }
+        .chat-bubble.sent {
+            background: #0088cc;
+            color: #ffffff;
+            margin-left: auto;
+            border-bottom-right-radius: 4px;
+        }
+        .chat-bubble.received {
+            background: #0088cc;
+            color: #000000; /* متن مشکی برای پیام‌های دریافتی */
+            margin-right: auto;
+            border-bottom-left-radius: 4px;
+        }
+        .chat-bubble img {
+            max-width: 100%;
+            border-radius: 8px;
+            margin-top: 4px;
+        }
+        .chat-bubble .timestamp {
+            font-size: 0.65rem;
+            color: #6b7280;
+            position: absolute;
+            bottom: -12px;
+            right: 8px;
+        }
+        .dark .chat-bubble.received {
+            background: #0088cc;
+            color: #000000; /* حفظ متن مشکی در تم تاریک */
+        }
+        .dark .chat-bubble .timestamp {
+            color: #9ca3af;
+        }
+        #toast {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #059669;
+            color: #ffffff;
+            padding: 8px 16px;
+            border-radius: 4px;
+            display: none;
+            z-index: 1000;
+        }
+        #menu {
+            transition: transform 0.3s ease-in-out;
+            transform: translateX(100%);
+        }
+        #menu.open {
+            transform: translateX(0);
+        }
+        #chat-input {
+            position: sticky;
+            bottom: 0;
+            background: inherit;
+        }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 min-h-screen flex flex-col">
+    <div id="toast">کد کپی شد!</div>
+
+    <!-- صفحه ورود/ثبت‌نام -->
+    <div id="auth" class="flex-1 flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 w-full max-w-sm">
+            <div class="tabs flex border-b mb-4">
+                <button class="flex-1 py-2 text-center font-bold border-b-2 border-blue-500 text-gray-900 dark:text-gray-100" id="register-tab">ثبت‌نام</button>
+                <button class="flex-1 py-2 text-center font-bold text-gray-900 dark:text-gray-100" id="login-tab">ورود</button>
+            </div>
+            <div id="register" class="tab-content">
+                <h2 class="text-xl font-bold mb-4 text-center text-gray-900 dark:text-gray-100">ثبت‌نام</h2>
+                <input type="text" id="reg-username" class="w-full p-2 mb-3 border rounded-lg dark:bg-gray-700 dark:border-gray-600 text-gray-900 dark:text-gray-100" placeholder="نام کاربری">
+                <input type="password" id="reg-password" class="w-full p-2 mb-3 border rounded-lg dark:bg-gray-700 dark:border-gray-600 text-gray-900 dark:text-gray-100" placeholder="رمزعبور">
+                <button onclick="register()" class="w-full bg-blue-500 text-white p-2 rounded-lg hover:bg-blue-600">ثبت‌نام</button>
+                <button class="w-full mt-2 text-blue-500 dark:text-blue-400 hover:underline" onclick="showGuide()">راهنما</button>
+            </div>
+            <div id="login" class="tab-content hidden">
+                <h2 class="text-xl font-bold mb-4 text-center text-gray-900 dark:text-gray-100">ورود</h2>
+                <input type="text" id="login-username" class="w-full p-2 mb-3 border rounded-lg dark:bg-gray-700 dark:border-gray-600 text-gray-900 dark:text-gray-100" placeholder="نام کاربری">
+                <input type="password" id="login-password" class="w-full p-2 mb-3 border rounded-lg dark:bg-gray-700 dark:border-gray-600 text-gray-900 dark:text-gray-100" placeholder="رمزعبور">
+                <input type="text" id="login-invite-code" class="w-full p-2 mb-3 border rounded-lg dark:bg-gray-700 dark:border-gray-600 text-gray-900 dark:text-gray-100" placeholder="کد دعوت">
+                <button onclick="login()" class="w-full bg-blue-500 text-white p-2 rounded-lg hover:bg-blue-600">ورود</button>
+                <button class="w-full mt-2 text-blue-500 dark:text-blue-400 hover:underline" onclick="showGuide()">راهنما</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- صفحه اصلی -->
+    <div id="main" class="flex-1 flex flex-col hidden">
+        <!-- هدر -->
+        <header class="bg-blue-500 text-white p-3 flex justify-between items-center shadow">
+            <button class="md:hidden text-2xl" onclick="toggleMenu()">☰</button>
+            <span class="text-lg font-bold">پیام‌رسان</span>
+            <span class="text-sm cursor-pointer text-blue-100 hover:text-blue-200" onclick="copyInviteCode()">کد دعوت: <span id="invite-code"></span></span>
+        </header>
+
+        <!-- منوی کشویی موبایل -->
+        <div id="menu" class="md:hidden fixed top-0 right-0 h-full w-64 bg-white dark:bg-gray-800 shadow-lg p-4 z-50 hidden">
+            <button class="w-full p-2 mb-2 bg-blue-500 text-white rounded-lg" onclick="openConnectModal()">اتصال به دوست</button>
+            <button id="admin-panel-btn" class="w-full p-2 mb-2 bg-yellow-500 text-white rounded-lg hidden" onclick="openAdminPanel()">پنل ادمین</button>
+            <button class="w-full p-2 mb-2 bg-gray-500 text-white rounded-lg" onclick="toggleTheme()">تغییر تم</button>
+            <button class="w-full p-2 bg-red-500 text-white rounded-lg" onclick="logout()">خروج</button>
+        </div>
+
+        <!-- محتوای اصلی -->
+        <div class="flex flex-1">
+            <!-- سایدبار دسکتاپ -->
+            <aside class="hidden md:block w-64 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700">
+                <div class="p-3 border-b">
+                    <span class="text-sm cursor-pointer text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300" onclick="copyInviteCode()">کد دعوت: <span id="invite-code-sidebar"></span></span>
+                </div>
+                <ul id="contact-list" class="divide-y divide-gray-200 dark:divide-gray-700"></ul>
+                <div class="p-3">
+                    <button class="w-full p-2 bg-blue-500 text-white rounded-lg" onclick="openConnectModal()">اتصال به دوست</button>
+                    <button id="admin-panel-btn-sidebar" class="w-full p-2 mt-2 bg-yellow-500 text-white rounded-lg hidden" onclick="openAdminPanel()">پنل ادمین</button>
+                    <button class="w-full p-2 mt-2 bg-gray-500 text-white rounded-lg" onclick="toggleTheme()">تغییر تم</button>
+                    <button class="w-full p-2 mt-2 bg-red-500 text-white rounded-lg" onclick="logout()">خروج</button>
+                </div>
+            </aside>
+
+            <!-- لیست مخاطبین موبایل -->
+            <ul id="contact-list-mobile" class="flex-1 divide-y divide-gray-200 dark:divide-gray-700 md:hidden"></ul>
+
+            <!-- صفحه چت -->
+            <div id="chat-page" class="hidden md:flex flex-col flex-1 bg-gray-100 dark:bg-gray-900 md:block">
+                <header class="bg-blue-500 text-white p-3 flex items-center shadow">
+                    <button class="md:hidden text-2xl" onclick="closeChat()">←</button>
+                    <span id="chat-header" class="text-lg font-bold drop-shadow-sm"></span>
+                </header>
+                <div id="chat" class="flex-1 overflow-y-auto p-4"></div>
+                <div id="chat-input" class="p-3 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
+                    <div class="flex items-center">
+                        <input type="file" id="image-upload" accept="image/*" class="hidden" onchange="uploadImage()">
+                        <button class="p-2 text-blue-500 dark:text-blue-400" onclick="document.getElementById('image-upload').click()">📎</button>
+                        <input type="text" id="message" class="flex-1 p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 text-gray-900 dark:text-gray-100" placeholder="پیام...">
+                        <button onclick="sendMessage()" class="p-2 bg-blue-500 text-white rounded-lg ml-2">ارسال</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- مدال اتصال -->
+    <div id="connect-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden">
+        <div class="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-sm">
+            <h2 class="text-xl font-bold mb-4 text-gray-900 dark:text-gray-100">اتصال به دوست</h2>
+            <div class="flex">
+                <input type="text" id="invite_code" class="flex-1 p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 text-gray-900 dark:text-gray-100" placeholder="کد دعوت">
+                <button onclick="connect()" class="p-2 bg-blue-500 text-white rounded-lg ml-2">اتصال</button>
+            </div>
+            <button class="w-full mt-4 text-blue-500 dark:text-blue-400 hover:underline" onclick="closeConnectModal()">بستن</button>
+        </div>
+    </div>
+
+    <!-- مدال راهنما -->
+    <div id="guide-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden">
+        <div class="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-sm overflow-y-auto max-h-[80vh]">
+            <h2 class="text-xl font-bold mb-4 text-gray-900 dark:text-gray-100">راهنما</h2>
+            <h3 class="font-bold text-gray-900 dark:text-gray-100">ثبت‌نام:</h3>
+            <ol class="list-decimal mr-4 mb-4 text-gray-700 dark:text-gray-300">
+                <li>نام کاربری و رمزعبور وارد کنید.</li>
+                <li>ثبت‌نام کنید و کد دعوت (مثل ABC12) بگیرید.</li>
+            </ol>
+            <h3 class="font-bold text-gray-900 dark:text-gray-100">ورود:</h3>
+            <ol class="list-decimal mr-4 mb-4 text-gray-700 dark:text-gray-300">
+                <li>نام کاربری، رمزعبور و کد دعوت رو وارد کنید.</li>
+                <li>ورود بزنید.</li>
+            </ol>
+            <h3 class="font-bold text-gray-900 dark:text-gray-100">چت:</h3>
+            <ol class="list-decimal mr-4 mb-4 text-gray-700 dark:text-gray-300">
+                <li>با کد دعوت دوستتون تو «اتصال به دوست» وصل بشید.</li>
+                <li>از لیست مخاطبین، دوستتون رو انتخاب کنید.</li>
+                <li>پیام یا عکس بفرستید.</li>
+            </ol>
+            <button class="w-full mt-4 text-blue-500 dark:text-blue-400 hover:underline" onclick="closeGuide()">بستن</button>
+        </div>
+    </div>
+
+    <!-- مدال پنل ادمین -->
+    <div id="admin-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden">
+        <div class="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md overflow-y-auto max-h-[80vh]">
+            <h2 class="text-xl font-bold mb-4 text-gray-900 dark:text-gray-100">پنل ادمین</h2>
+            <ul id="admin-user-list" class="divide-y divide-gray-200 dark:divide-gray-700"></ul>
+            <button class="w-full mt-4 text-blue-500 dark:text-blue-400 hover:underline" onclick="closeAdminPanel()">بستن</button>
+        </div>
+    </div>
+
+    <script>
+        let token = localStorage.getItem("token") || "";
+        let currentUserCode = "";
+        let selectedContact = "";
+        let currentUsername = "";
+        const socket = io("http://localhost:8000");
+
+        // مدیریت تم
+        function toggleTheme() {
+            document.documentElement.classList.toggle("dark");
+            localStorage.setItem("theme", document.documentElement.classList.contains("dark") ? "dark" : "light");
+        }
+        if (localStorage.getItem("theme") === "dark") {
+            document.documentElement.classList.add("dark");
+        }
+
+        // مدیریت منو
+        function toggleMenu() {
+            const menu = document.getElementById("menu");
+            menu.classList.toggle("hidden");
+            menu.classList.toggle("open");
+        }
+
+        // کپی کد دعوت
+        function copyInviteCode() {
+            navigator.clipboard.writeText(currentUserCode).then(() => {
+                const toast = document.getElementById("toast");
+                toast.style.display = "block";
+                setTimeout(() => toast.style.display = "none", 2000);
+            }).catch(err => {
+                console.error("Failed to copy invite code:", err);
+                alert("خطا در کپی کد");
+            });
+        }
+
+        // خروج
+        function logout() {
+            localStorage.removeItem("token");
+            token = "";
+            currentUserCode = "";
+            currentUsername = "";
+            selectedContact = "";
+            document.getElementById("main").style.display = "none";
+            document.getElementById("auth").style.display = "block";
+            socket.disconnect();
+            alert("با موفقیت خارج شدید");
+        }
+
+        socket.on("connect", () => {
+            console.log("Connected to WebSocket");
+            if (!token) {
+                document.getElementById("auth").style.display = "block";
+                document.getElementById("main").style.display = "none";
+                return;
+            }
+            fetchContacts();
+            document.getElementById("invite-code").textContent = currentUserCode;
+            document.getElementById("invite-code-sidebar").textContent = currentUserCode;
+            // چک ادمین
+            if (currentUsername === "admin") {
+                document.getElementById("admin-panel-btn").classList.remove("hidden");
+                document.getElementById("admin-panel-btn-sidebar").classList.remove("hidden");
+            }
+        });
+
+        socket.on("message", (data) => {
+            if ((data.sender === currentUserCode || data.recipient === currentUserCode) && 
+                (data.sender === selectedContact || data.recipient === selectedContact)) {
+                const chat = document.getElementById("chat");
+                const msgDiv = document.createElement("div");
+                msgDiv.className = `chat-bubble ${data.sender === currentUserCode ? "sent" : "received"}`;
+                const content = data.is_image ? `<img src="${data.message}" alt="Image">` : data.message;
+                msgDiv.innerHTML = `<span>${content}</span><span class="timestamp">${new Date(data.timestamp).toLocaleTimeString('fa-IR')}</span>`;
+                chat.appendChild(msgDiv);
+                chat.scrollTop = chat.scrollHeight;
+            }
+        });
+
+        socket.on("error", (data) => {
+            console.error("WebSocket error:", data.error);
+            alert(data.error);
+        });
+
+        if (token) {
+            document.getElementById("auth").style.display = "none";
+            document.getElementById("main").style.display = "flex";
+            socket.connect();
+        }
+
+        // مدیریت تب‌ها
+        document.getElementById("register-tab").addEventListener("click", () => {
+            document.getElementById("register").classList.remove("hidden");
+            document.getElementById("login").classList.add("hidden");
+            document.getElementById("register-tab").classList.add("border-blue-500");
+            document.getElementById("login-tab").classList.remove("border-blue-500");
+        });
+        document.getElementById("login-tab").addEventListener("click", () => {
+            document.getElementById("login").classList.remove("hidden");
+            document.getElementById("register").classList.add("hidden");
+            document.getElementById("login-tab").classList.add("border-blue-500");
+            document.getElementById("register-tab").classList.remove("border-blue-500");
+        });
+
+        async function register() {
+            const username = document.getElementById("reg-username").value;
+            const password = document.getElementById("reg-password").value;
+            if (!username || !password) {
+                alert("نام کاربری و رمزعبور الزامی است");
+                return;
+            }
+            try {
+                const res = await fetch("/register", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username, password }),
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    token = data.token;
+                    localStorage.setItem("token", token);
+                    currentUserCode = data.invite_code;
+                    currentUsername = username;
+                    document.getElementById("invite-code").textContent = currentUserCode;
+                    document.getElementById("invite-code-sidebar").textContent = currentUserCode;
+                    alert(`ثبت‌نام موفق! کد دعوت: ${data.invite_code}`);
+                    document.getElementById("auth").style.display = "none";
+                    document.getElementById("main").style.display = "flex";
+                    fetchContacts();
+                    if (username === "admin") {
+                        document.getElementById("admin-panel-btn").classList.remove("hidden");
+                        document.getElementById("admin-panel-btn-sidebar").classList.remove("hidden");
+                    }
+                } else {
+                    alert(data.error);
+                }
+            } catch (err) {
+                alert("خطای ارتباط با سرور");
+                console.error("Registration error:", err);
+            }
+        }
+
+        async function login() {
+            const username = document.getElementById("login-username").value;
+            const password = document.getElementById("login-password").value;
+            const invite_code = document.getElementById("login-invite-code").value;
+            if (!username || !password || !invite_code) {
+                alert("نام کاربری، رمزعبور و کد دعوت الزامی است");
+                return;
+            }
+            try {
+                const res = await fetch("/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username, password, invite_code }),
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    token = data.token;
+                    localStorage.setItem("token", token);
+                    currentUserCode = data.invite_code;
+                    currentUsername = username;
+                    document.getElementById("invite-code").textContent = currentUserCode;
+                    document.getElementById("invite-code-sidebar").textContent = currentUserCode;
+                    alert("ورود موفق!");
+                    document.getElementById("auth").style.display = "none";
+                    document.getElementById("main").style.display = "flex";
+                    fetchContacts();
+                    if (username === "admin") {
+                        document.getElementById("admin-panel-btn").classList.remove("hidden");
+                        document.getElementById("admin-panel-btn-sidebar").classList.remove("hidden");
+                    }
+                } else {
+                    alert(data.error);
+                }
+            } catch (err) {
+                alert("خطای ارتباط با سرور");
+                console.error("Login error:", err);
+            }
+        }
+
+        async function connect() {
+            const invite_code = document.getElementById("invite_code").value;
+            if (!invite_code) {
+                alert("کد دعوت الزامی است");
+                return;
+            }
+            try {
+                const res = await fetch("/connect", {
+                    method: "POST",
+                    headers: { 
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ invite_code }),
+                });
+                const data = await res.json();
+                alert(data.message || data.error);
+                fetchContacts();
+                closeConnectModal();
+            } catch (err) {
+                alert("خطای ارتباط با سرور");
+                console.error("Connect error:", err);
+            }
+        }
+
+        async function fetchContacts() {
+            try {
+                const res = await fetch("/contacts", {
+                    headers: { "Authorization": `Bearer ${token}` },
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    const contactList = document.getElementById("contact-list");
+                    const contactListMobile = document.getElementById("contact-list-mobile");
+                    contactList.innerHTML = "";
+                    contactListMobile.innerHTML = "";
+                    data.forEach(contact => {
+                        const item = `
+                            <li class="p-3 hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer text-gray-900 dark:text-gray-100 flex items-center" 
+                                onclick="openChat('${contact.invite_code}', '${contact.username}')">
+                                <span class="inline-block w-8 h-8 bg-blue-500 text-white rounded-full flex items-center justify-center mr-2">
+                                    ${contact.username.charAt(0)}
+                                </span>
+                                <span class="font-bold">${contact.username}</span>
+                            </li>
+                        `;
+                        contactList.innerHTML += item;
+                        contactListMobile.innerHTML += item;
+                    });
+                } else {
+                    const data = await res.json();
+                    alert(data.error);
+                }
+            } catch (err) {
+                console.error("Fetch contacts error:", err);
+            }
+        }
+
+        async function openChat(invite_code, username) {
+            selectedContact = invite_code;
+            document.getElementById("chat-header").textContent = username;
+            document.getElementById("chat").innerHTML = "";
+            document.getElementById("chat-page").classList.remove("hidden");
+            try {
+                const res = await fetch(`/chat_history/${invite_code}`, {
+                    headers: { "Authorization": `Bearer ${token}` },
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    const chat = document.getElementById("chat");
+                    data.forEach(msg => {
+                        const msgDiv = document.createElement("div");
+                        msgDiv.className = `chat-bubble ${msg.sender_code === currentUserCode ? "sent" : "received"}`;
+                        const content = msg.is_image ? `<img src="${msg.message}" alt="Image">` : msg.message;
+                        msgDiv.innerHTML = `<span>${content}</span><span class="timestamp">${new Date(msg.timestamp).toLocaleTimeString('fa-IR')}</span>`;
+                        chat.appendChild(msgDiv);
+                    });
+                    chat.scrollTop = chat.scrollHeight;
+                } else {
+                    const data = await res.json();
+                    alert(data.error);
+                }
+            } catch (err) {
+                console.error("Fetch chat history error:", err);
+                alert("خطای بارگذاری تاریخچه چت");
+            }
+        }
+
+        function closeChat() {
+            document.getElementById("chat-page").classList.add("hidden");
+            selectedContact = "";
+            document.getElementById("chat").innerHTML = "";
+        }
+
+        async function uploadImage() {
+            if (!selectedContact) {
+                alert("ابتدا یک مخاطب انتخاب کنید");
+                return;
+            }
+            const fileInput = document.getElementById("image-upload");
+            if (!fileInput.files.length) {
+                alert("تصویری انتخاب نشده");
+                return;
+            }
+            const formData = new FormData();
+            formData.append("image", fileInput.files[0]);
+            try {
+                const res = await fetch("/upload_image", {
+                    method: "POST",
+                    headers: { "Authorization": `Bearer ${token}` },
+                    body: formData,
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    socket.emit("message", { token, recipient_code: selectedContact, message: data.image_url, is_image: 1 });
+                    fileInput.value = "";
+                } else {
+                    alert(data.error);
+                }
+            } catch (err) {
+                alert("خطای ارتباط با سرور");
+                console.error("Upload image error:", err);
+            }
+        }
+
+        function sendMessage() {
+            if (!selectedContact) {
+                alert("ابتدا یک مخاطب انتخاب کنید");
+                return;
+            }
+            const message = document.getElementById("message").value;
+            if (!message) {
+                alert("پیام نمی‌تواند خالی باشد");
+                return;
+            }
+            socket.emit("message", { token, recipient_code: selectedContact, message, is_image: 0 });
+            document.getElementById("message").value = "";
+        }
+
+        async function openAdminPanel() {
+            try {
+                const res = await fetch("/admin/users", {
+                    headers: { "Authorization": `Bearer ${token}` },
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    const userList = document.getElementById("admin-user-list");
+                    userList.innerHTML = "";
+                    data.forEach(user => {
+                        const item = `
+                            <li class="p-3 text-gray-900 dark:text-gray-100 flex justify-between items-center">
+                                <span>${user.username}: ${user.invite_code}</span>
+                                <div>
+                                    <button class="p-1 bg-red-500 text-white rounded text-sm" onclick="deleteUser('${user.username}')">حذف</button>
+                                    <button class="p-1 bg-green-500 text-white rounded text-sm mr-2" onclick="updateInviteCode('${user.username}')">تغییر کد</button>
+                                </div>
+                            </li>
+                        `;
+                        userList.innerHTML += item;
+                    });
+                    document.getElementById("admin-modal").classList.remove("hidden");
+                } else {
+                    const data = await res.json();
+                    alert(data.error);
+                }
+            } catch (err) {
+                alert("خطای ارتباط با سرور");
+                console.error("Admin panel error:", err);
+            }
+        }
+
+        async function deleteUser(username) {
+            if (!confirm(`آیا مطمئن هستید که می‌خواهید کاربر ${username} را حذف کنید؟`)) {
+                return;
+            }
+            try {
+                const res = await fetch(`/admin/users/${username}`, {
+                    method: "DELETE",
+                    headers: { "Authorization": `Bearer ${token}` },
+                });
+                const data = await res.json();
+                alert(data.message || data.error);
+                if (res.ok) {
+                    openAdminPanel(); // به‌روزرسانی لیست
+                }
+            } catch (err) {
+                alert("خطای ارتباط با سرور");
+                console.error("Delete user error:", err);
+            }
+        }
+
+        async function updateInviteCode(username) {
+            if (!confirm(`آیا مطمئن هستید که می‌خواهید کد دعوت کاربر ${username} را تغییر دهید؟`)) {
+                return;
+            }
+            try {
+                const res = await fetch(`/admin/users/${username}/invite_code`, {
+                    method: "PUT",
+                    headers: { "Authorization": `Bearer ${token}` },
+                });
+                const data = await res.json();
+                alert(data.message || data.error);
+                if (res.ok) {
+                    openAdminPanel(); // به‌روزرسانی لیست
+                }
+            } catch (err) {
+                alert("خطای ارتباط با سرور");
+                console.error("Update invite code error:", err);
+            }
+        }
+
+        function closeAdminPanel() {
+            document.getElementById("admin-modal").classList.add("hidden");
+        }
+
+        function openConnectModal() {
+            document.getElementById("connect-modal").classList.remove("hidden");
+        }
+
+        function closeConnectModal() {
+            document.getElementById("connect-modal").classList.add("hidden");
+        }
+
+        function showGuide() {
+            document.getElementById("guide-modal").classList.remove("hidden");
+        }
+
+        function closeGuide() {
+            document.getElementById("guide-modal").classList.add("hidden");
+        }
+    </script>
+</body>
+</html>
